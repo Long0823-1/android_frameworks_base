@@ -364,13 +364,19 @@ static jobject Bitmap_copy(JNIEnv* env, jobject, jlong srcHandle,
                            jint dstConfigHandle, jboolean isMutable) {
     SkBitmap src;
     reinterpret_cast<BitmapWrapper*>(srcHandle)->getSkBitmap(&src);
-    if (dstConfigHandle == GraphicsJNI::hardwareLegacyBitmapConfig()) {
+    // suez (MT8173/PowerVR Rogue): direct hardware-to-hardware Bitmap.copy()
+    // via allocateHardwareBitmap() produces skewed/torn display content on
+    // this GPU (a known MTK issue, see BitmapFactory.cpp's needsOffset
+    // workaround below for the actual root cause -- unaligned hardware
+    // bitmap dimensions). Falling through to the regular software copy path
+    // below avoids the direct hardware-bitmap-to-hardware-bitmap route.
+    /*if (dstConfigHandle == GraphicsJNI::hardwareLegacyBitmapConfig()) {
         sk_sp<Bitmap> bitmap(Bitmap::allocateHardwareBitmap(src));
         if (!bitmap.get()) {
             return NULL;
         }
         return createBitmap(env, bitmap.release(), getPremulBitmapCreateFlags(isMutable));
-    }
+    }*/
 
     SkColorType dstCT = GraphicsJNI::legacyBitmapConfigToColorType(dstConfigHandle);
     SkBitmap result;

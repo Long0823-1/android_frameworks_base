@@ -231,7 +231,14 @@ void EglManager::initExtensions() {
     EglExtensions.scRGB = extensions.has("EGL_EXT_gl_colorspace_scrgb");
     EglExtensions.displayP3 = extensions.has("EGL_EXT_gl_colorspace_display_p3_passthrough");
     EglExtensions.contextPriority = extensions.has("EGL_IMG_context_priority");
-    EglExtensions.surfacelessContext = extensions.has("EGL_KHR_surfaceless_context");
+    // suez (MT8173/PowerVR Rogue): the vendor driver advertises
+    // EGL_KHR_surfaceless_context but its implementation is buggy -- relying
+    // on EGL_NO_SURFACE (skipping the 1x1 PBuffer fallback surface below)
+    // leaves the default framebuffer's draw/read buffer state corrupted
+    // across the transition back to a real window surface, producing a
+    // GL_INVALID_ENUM that hwui's post-swap GL_CHECKPOINT treats as fatal.
+    // Force the PBuffer fallback path unconditionally to route around it.
+    EglExtensions.surfacelessContext = false;
     EglExtensions.fenceSync = extensions.has("EGL_KHR_fence_sync");
     EglExtensions.waitSync = extensions.has("EGL_KHR_wait_sync");
 

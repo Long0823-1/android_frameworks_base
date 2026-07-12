@@ -312,6 +312,41 @@ static jobject doDecode(JNIEnv* env, std::unique_ptr<SkStreamRewindable> stream,
         scaledHeight = static_cast<int>(scaledHeight * scale + 0.5f);
     }
 
+    // suez (MT8173/PowerVR Rogue): hardware bitmaps whose dimensions aren't
+    // 32-pixel aligned render with skewed/torn content on this GPU -- a
+    // known MTK issue (originally reported for MTK L861). Round
+    // scaledWidth/scaledHeight to the nearest 32-pixel boundary before
+    // hardware bitmap allocation below. Rounds up or down depending on which
+    // is closer; sizes under 16px aren't adjusted (half the alignment unit).
+    const int needsOffset = 32;
+    const int minScaleHandlesize = 16;
+    if (isHardware && scaledWidth >= minScaleHandlesize && scaledHeight >= minScaleHandlesize) {
+        int rx = scaledWidth % needsOffset;
+        int ry = scaledHeight % needsOffset;
+        bool scaleX = false;
+
+        if (rx != 0) {
+            willScale = true;
+            if (rx >= (needsOffset / 2)) {
+                scaleX = true;  // upscale
+                rx = needsOffset - rx;
+                scaledWidth = scaledWidth + rx;
+            } else {
+                scaledWidth = scaledWidth - rx;
+            }
+        }
+        if (ry != 0) {
+            willScale = true;
+            if (ry >= (needsOffset / 2) || scaleX) {
+                // upscale
+                ry = needsOffset - ry;
+                scaledHeight = scaledHeight + ry;
+            } else {
+                scaledHeight = scaledHeight - ry;
+            }
+        }
+    }
+
     android::Bitmap* reuseBitmap = nullptr;
     unsigned int existingBufferSize = 0;
     if (javaBitmap != nullptr) {

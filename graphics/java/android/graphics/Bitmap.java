@@ -682,9 +682,13 @@ public final class Bitmap implements Parcelable {
      */
     public Bitmap copy(Config config, boolean isMutable) {
         checkRecycled("Can't copy a recycled bitmap");
-        if (config == Config.HARDWARE && isMutable) {
+        // suez (MT8173/PowerVR Rogue): paired with the native-side workaround
+        // in Bitmap.cpp's Bitmap_copy() that no longer takes the direct
+        // hardware-to-hardware fast path, so this restriction (which existed
+        // to guard that fast path's assumptions) is no longer needed here.
+        /*if (config == Config.HARDWARE && isMutable) {
             throw new IllegalArgumentException("Hardware bitmaps are always immutable");
-        }
+        }*/
         noteHardwareBitmapSlowCall();
         Bitmap b = nativeCopy(mNativePtr, config.nativeInt, isMutable);
         if (b != null) {
