@@ -78,6 +78,13 @@ public class KeyButtonDrawable extends Drawable {
 
     private final Paint mIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint mShadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    // suez (MT8173/PowerVR Rogue): mLastDrawnIcon's canvas is padded up to a
+    // 32px-aligned size (see regenerateBitmapIconCache) when it will be
+    // copied to a hardware bitmap, since this GPU skews/tears hardware
+    // bitmaps whose dimensions aren't 32-aligned. This rect samples only the
+    // original (unpadded) icon area so the padding never shows up scaled
+    // into the drawable's bounds.
+    private Rect mIconSrcRect;
     private final ShadowDrawableState mState;
     private AnimatedVectorDrawable mAnimatedDrawable;
     private final Callback mAnimatedDrawableCallback = new Callback() {
@@ -306,7 +313,7 @@ public class KeyButtonDrawable extends Drawable {
                 canvas.drawBitmap(mState.mLastDrawnShadow, shadowOffsetX, shadowOffsetY,
                         mShadowPaint);
             }
-            canvas.drawBitmap(mState.mLastDrawnIcon, null, bounds, mIconPaint);
+            canvas.drawBitmap(mState.mLastDrawnIcon, mIconSrcRect, bounds, mIconPaint);
             canvas.restore();
         }
     }
@@ -327,7 +334,9 @@ public class KeyButtonDrawable extends Drawable {
     private void regenerateBitmapIconCache() {
         final int width = getIntrinsicWidth();
         final int height = getIntrinsicHeight();
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        final int canvasWidth = mState.mIsHardwareBitmap ? alignUp32(width) : width;
+        final int canvasHeight = mState.mIsHardwareBitmap ? alignUp32(height) : height;
+        Bitmap bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888);
         final Canvas canvas = new Canvas(bitmap);
 
         // Call mutate, so that the pixel allocation by the underlying vector drawable is cleared.
@@ -340,10 +349,17 @@ public class KeyButtonDrawable extends Drawable {
         d.draw(canvas);
         canvas.restore();
 
+        mIconSrcRect = new Rect(0, 0, width, height);
         if (mState.mIsHardwareBitmap) {
             bitmap = bitmap.copy(Bitmap.Config.HARDWARE, false);
         }
         mState.mLastDrawnIcon = bitmap;
+    }
+
+    // suez (MT8173/PowerVR Rogue): rounds up to the next 32-pixel boundary,
+    // the alignment this GPU needs for hardware bitmaps to display correctly.
+    private static int alignUp32(int value) {
+        return (value + 31) & ~31;
     }
 
     private void regenerateBitmapShadowCache() {
@@ -355,7 +371,9 @@ public class KeyButtonDrawable extends Drawable {
 
         final int width = getIntrinsicWidth();
         final int height = getIntrinsicHeight();
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        final int canvasWidth = mState.mIsHardwareBitmap ? alignUp32(width) : width;
+        final int canvasHeight = mState.mIsHardwareBitmap ? alignUp32(height) : height;
+        Bitmap bitmap = Bitmap.createBitmap(canvasWidth, canvasHeight, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
 
         // Call mutate, so that the pixel allocation by the underlying vector drawable is cleared.
