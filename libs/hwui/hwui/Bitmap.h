@@ -85,6 +85,12 @@ public:
                                     sk_sp<SkColorSpace> colorSpace,
                                     SkAlphaType alphaType,
                                     BitmapPalette palette);
+
+    // bufferDesc is only used to compute rowBytes; info may report smaller
+    // logical dimensions than the buffer for callers that padded the
+    // allocation (eg. for GPU alignment) but want to expose the original size.
+    static sk_sp<Bitmap> createFrom(AHardwareBuffer* hardwareBuffer, const SkImageInfo& info,
+                                    const AHardwareBuffer_Desc& bufferDesc, BitmapPalette palette);
 #endif
     static sk_sp<Bitmap> createFrom(const SkImageInfo& info, size_t rowBytes, int fd, void* addr,
                                     size_t size, bool readOnly);
@@ -169,12 +175,6 @@ private:
 #ifdef __ANDROID__ // Layoutlib does not support hardware acceleration
     Bitmap(AHardwareBuffer* buffer, const SkImageInfo& info, size_t rowBytes,
            BitmapPalette palette);
-
-    // Common code for the two public facing createFrom(AHardwareBuffer*, ...)
-    // methods.
-    // bufferDesc is only used to compute rowBytes.
-    static sk_sp<Bitmap> createFrom(AHardwareBuffer* hardwareBuffer, const SkImageInfo& info,
-                                    const AHardwareBuffer_Desc& bufferDesc, BitmapPalette palette);
 #endif
 
     virtual ~Bitmap();

@@ -365,7 +365,52 @@ static jobject Bitmap_copy(JNIEnv* env, jobject, jlong srcHandle,
     SkBitmap src;
     reinterpret_cast<BitmapWrapper*>(srcHandle)->getSkBitmap(&src);
     if (dstConfigHandle == GraphicsJNI::hardwareLegacyBitmapConfig()) {
-        sk_sp<Bitmap> bitmap(Bitmap::allocateHardwareBitmap(src));
+        // suez (MT8173/PowerVR Rogue): the GPU renders hardware bitmaps whose
+        // dimensions aren't 32-pixel aligned with skewed/torn content (same
+        // root cause as BitmapFactory.cpp's needsOffset workaround at decode
+        // time). Callers of Bitmap.copy() that don't already align themselves
+        // (eg. Play Store/GMS's own thumbnail bitmaps, unlike SystemUI's
+        // KeyButtonDrawable which pre-aligns) aren't guaranteed to be aligned,
+        // so pad the backing GraphicBuffer to an aligned size here while
+        // still reporting the original logical width/height to Java, so
+        // callers see no behavior change. (Earlier suspected of causing
+        // YouTube playback lag; that was actually zram swap thrashing,
+        // unrelated -- safe to keep this generic fallback.)
+        constexpr int kHwAlign = 32;
+        auto alignUp = [](int v) { return (v + kHwAlign - 1) / kHwAlign * kHwAlign; };
+        const int alignedWidth = alignUp(src.width());
+        const int alignedHeight = alignUp(src.height());
+
+        if (alignedWidth == src.width() && alignedHeight == src.height()) {
+            sk_sp<Bitmap> bitmap(Bitmap::allocateHardwareBitmap(src));
+            if (!bitmap.get()) {
+                return NULL;
+            }
+            return createBitmap(env, bitmap.release(), getPremulBitmapCreateFlags(isMutable));
+        }
+
+        SkBitmap padded;
+        SkImageInfo paddedInfo = src.info().makeWH(alignedWidth, alignedHeight);
+        if (!padded.tryAllocPixels(paddedInfo)) {
+            return NULL;
+        }
+        padded.eraseColor(0);
+        SkPixmap srcPixmap;
+        if (!src.peekPixels(&srcPixmap) || !padded.writePixels(srcPixmap, 0, 0)) {
+            return NULL;
+        }
+
+        sk_sp<Bitmap> hwPadded(Bitmap::allocateHardwareBitmap(padded));
+        if (!hwPadded.get()) {
+            return NULL;
+        }
+
+        AHardwareBuffer* hardwareBuffer = hwPadded->hardwareBuffer();
+        AHardwareBuffer_Desc bufferDesc;
+        AHardwareBuffer_describe(hardwareBuffer, &bufferDesc);
+        SkImageInfo logicalInfo = src.info().makeColorSpace(hwPadded->info().refColorSpace());
+        sk_sp<Bitmap> bitmap = Bitmap::createFrom(hardwareBuffer, logicalInfo, bufferDesc,
+                                                   Bitmap::computePalette(padded));
         if (!bitmap.get()) {
             return NULL;
         }
