@@ -240,6 +240,48 @@ static jobject ImageDecoder_nDecodeBitmap(JNIEnv* env, jobject /*clazz*/, jlong 
                                           jboolean asAlphaMask, jlong colorSpaceHandle,
                                           jboolean extended) {
     auto* decoder = reinterpret_cast<ImageDecoder*>(nativePtr);
+
+    // suez (MT8173/PowerVR Rogue): same 32-pixel-alignment hardware-bitmap
+    // bug worked around in BitmapFactory.cpp's doDecode() -- this GPU
+    // renders Config.HARDWARE bitmaps skewed/torn unless their dimensions
+    // are 32-pixel aligned. That fix only covers the BitmapFactory decode
+    // path; image loaders that call ImageDecoder.decodeBitmap() directly
+    // (the default on API 28+, used by Coil and modern Glide for network
+    // images -- e.g. Aurora Store's/Plex's grid thumbnails) go through this
+    // function instead and bypass it entirely, reproducing the same
+    // corruption. colorType isn't known this early (it's resolved further
+    // below), so this can't perfectly mirror doDecode()'s
+    // "colorType != kGray_8_SkColorType" hardware check -- rounding a
+    // target size that turns out not to end up hardware is harmless
+    // (ImageDecoder's own sample-then-scale machinery in setTargetSize()
+    // handles arbitrary target sizes anyway), so approximate with what's
+    // available here instead of skipping alignment for that rare case.
+    const bool likelyHardware = !requireMutable
+        && (allocator == kDefault_Allocator || allocator == kHardware_Allocator);
+    const int needsOffset = 32;
+    const int minScaleHandlesize = 16;
+    if (likelyHardware && targetWidth >= minScaleHandlesize && targetHeight >= minScaleHandlesize) {
+        int rx = targetWidth % needsOffset;
+        int ry = targetHeight % needsOffset;
+        bool scaleX = false;
+
+        if (rx != 0) {
+            if (rx >= (needsOffset / 2)) {
+                scaleX = true;  // upscale
+                targetWidth += (needsOffset - rx);
+            } else {
+                targetWidth -= rx;
+            }
+        }
+        if (ry != 0) {
+            if (ry >= (needsOffset / 2) || scaleX) {
+                targetHeight += (needsOffset - ry);
+            } else {
+                targetHeight -= ry;
+            }
+        }
+    }
+
     if (!decoder->setTargetSize(targetWidth, targetHeight)) {
         doThrowISE(env, "Could not scale to target size!");
         return nullptr;
